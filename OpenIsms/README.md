@@ -37,6 +37,10 @@ sed -i 's|^NEXT_PUBLIC_APP_URL=.*|NEXT_PUBLIC_APP_URL=http://localhost:3000|' .e
 sed -i 's|^BOOTSTRAP_ADMIN_EMAIL=.*|BOOTSTRAP_ADMIN_EMAIL=maxchip@outlook.com|' .env
 sed -i 's|^BOOTSTRAP_ADMIN_PASSWORD=.*|BOOTSTRAP_ADMIN_PASSWORD=admin123|' .env
 
+sed -i "s|^AWS_SECRET_ACCESS_KEY=.*|AWS_SECRET_ACCESS_KEY=7K0c6Kkf+2VWrNovY/3wEfSt9rrHgH256zTTumHq9b4=|" .env
+
+sed -i "s|^MINIO_KMS_KEY=.*|MINIO_KMS_KEY=7K0c6Kkf+2VWrNovY/3wEfSt9rrHgH256zTTumHq9b4=|" .env
+
 docker compose up -d 
 
 docker compose down
