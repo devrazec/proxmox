@@ -1,0 +1,163 @@
+# ============================================================
+# NIS2PME — On-Prem Deployment (GHCR — pre-built images)
+#
+# This is the default end-user deployment. It pulls the
+# pre-built images from GitHub Container Registry — no build.
+#
+# Easiest:   ./start_nis2pme.sh   (generates .env, pulls, starts)
+# Manual:    create a .env (APP_URL + DB_PASSWORD) then:
+#               docker compose up -d
+#
+# To build the images from source instead, use:
+#               docker compose -f docker-compose.build.yml up -d --build
+#
+# Pin a version by replacing ":latest" with a tag, e.g. ":0.2".
+# ============================================================
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    container_name: nis2pme_db
+    restart: unless-stopped
+    # Hardening base (sem read_only nesta fase). Postgres faz uid-drop interno, por
+    # isso NÃO se faz cap_drop:[ALL] aqui — só no-new-privileges + limites de recursos.
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: ${DB_MEM_LIMIT:-1g}
+    cpus: ${DB_CPUS:-1.0}
+    pids_limit: 512
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      POSTGRES_USER: ${DB_USER:-nis2pme}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD in the .env file}
+      POSTGRES_DB: ${DB_NAME:-nis2pme}
+    volumes:
+      - nis2pme_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nis2pme -d nis2pme"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - nis2pme_net
+
+  backend:
+    image: ghcr.io/nis2pme/backend:${NIS2PME_TAG:-latest}
+    container_name: nis2pme_backend
+    restart: unless-stopped
+    # Hardening base: sem escalonamento, limites, e só as capabilities do arranque.
+    # O entrypoint arranca como root APENAS para reparar a posse dos volumes e do .env
+    # do host (ficheiros com dono root — de versões antigas, backups ou intervenções
+    # manuais — deixavam a app em crash-loop após upgrade) e baixa de imediato para o
+    # uid 10001 via setpriv: o uvicorn nunca corre como root.
+    # CHOWN + DAC_OVERRIDE: reparação de posse; SETUID + SETGID: baixar privilégios.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE]
+    mem_limit: ${BACKEND_MEM_LIMIT:-1g}
+    cpus: ${BACKEND_CPUS:-1.0}
+    pids_limit: 512
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    env_file:
+      - .env
+    environment:
+      # These override the .env — do not change here
+      DATABASE_URL: postgresql://${DB_USER:-nis2pme}:${DB_PASSWORD}@db:5432/${DB_NAME:-nis2pme}
+      DEPLOYMENT_MODE: onprem
+      FRAMEWORKS_DIR: /app/frameworks
+      NGINX_CONFIG_DIR: /app/nginx_config
+      # Chave pública mestra NIS2PME (valida atestações de chave do dossiê).
+      # Por omissão, a da raiz de produção: sem ela a app não dá erro nenhum —
+      # só passa a pedir a confirmação do fingerprint em cada convite atestado,
+      # e ninguém repara. Um stack de desenvolvimento define a sua no .env.
+      NIS2PME_MESTRA_PUBKEY: ${NIS2PME_MESTRA_PUBKEY:-zoz286THo5fYFur5w1gfihxSCWupsS33fdnkcCaN0wU}
+      # CORS_ORIGINS not set here: auto-derived from APP_URL by the backend
+    volumes:
+      - nis2pme_uploads:/app/uploads
+      # Control-framework definitions (QNRCS 2026) are baked into the image — no mount.
+      - nis2pme_nginx:/app/nginx_config
+      # Secrets auto-generated on first run (JWT keys, Fernet keys)
+      - nis2pme_data:/app/data
+      # Lets the setup wizard write SMTP config back to the host .env
+      - ./.env:/app/.env
+      # Custom TLS certificate (optional — populated by the installer when TLS_MODE=custom)
+      - ./certs:/app/host_certs:ro
+      # Atualização pelo interface: o backend deixa o pedido numa pasta e lê o
+      # progresso da outra, só de leitura. Quem age sobre o Docker é o agente do
+      # anfitrião — nenhum contentor tem acesso ao socket.
+      - ./atualizacao/pedido:/app/atualizacao/pedido
+      - ./atualizacao/estado:/app/atualizacao/estado:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 240s
+    networks:
+      - nis2pme_net
+
+  frontend:
+    image: ghcr.io/nis2pme/frontend:${NIS2PME_TAG:-latest}
+    container_name: nis2pme_frontend
+    restart: unless-stopped
+    # nginx liga :80/:443 (porta privilegiada) e faz uid-drop dos workers → precisa de
+    # algumas caps: dropa tudo e readiciona só o essencial. (read_only fica para P2;
+    # migrar para nginx-unprivileged também.)
+    # DAC_OVERRIDE: o volume partilhado com o backend é escrito pelo backend como
+    # uid 10001; sem esta cap, root aqui não pode escrever num diretório que não é seu.
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, NET_BIND_SERVICE, DAC_OVERRIDE]
+    mem_limit: ${FRONTEND_MEM_LIMIT:-128m}
+    cpus: ${FRONTEND_CPUS:-0.5}
+    pids_limit: 256
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      # Passar (não decidir): mesma flag/valor que o backend. O nginx aplica o real_ip no único
+      # ponto onde o IP do peer ainda é fidedigno; a decisão de confiar no CF é única (backend).
+      # Default false → on-prem direto não confia no CF-Connecting-IP (evita spoofing, CWE-348).
+      TRUST_CLOUDFLARE_HEADERS: ${TRUST_CLOUDFLARE_HEADERS:-false}
+      REAL_IP_FROM: ${REAL_IP_FROM:-172.16.0.0/12}
+    ports:
+      # FRONTEND_BIND_IP: atrás de Cloudflare Tunnel/reverse-proxy → 127.0.0.1 (origem fechada à
+      # internet); on-prem com acesso direto → 0.0.0.0 (default, não quebra instalações existentes).
+      # FRONTEND_BIND_IP6: par IPv6 (default :: = todos). Atrás de túnel cujo "localhost" resolve
+      # para ::1, é preciso ouvir TAMBÉM em loopback v6 — senão o túnel não alcança a app. Em hosts
+      # sem IPv6, sobrepor com o mesmo valor de FRONTEND_BIND_IP não se aplica; deixar :: é tolerado.
+      - "${FRONTEND_BIND_IP:-0.0.0.0}:${PORT:-80}:80"
+      - "${FRONTEND_BIND_IP:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${FRONTEND_BIND_IP6:-::}:${PORT:-80}:80"
+      - "${FRONTEND_BIND_IP6:-::}:${HTTPS_PORT:-443}:443"
+    volumes:
+      - nis2pme_nginx:/run/nginx_config
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - nis2pme_net
+
+volumes:
+  nis2pme_pgdata:
+  nis2pme_uploads:
+  nis2pme_nginx:
+  nis2pme_data:
+
+networks:
+  nis2pme_net:
+    driver: bridge

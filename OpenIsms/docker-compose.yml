@@ -1,0 +1,200 @@
+# Developer stack: Postgres + the app, built from the source next to it.
+#
+#   cp .env.example .env      # then fill in the four required values
+#   docker compose up --build # http://localhost:3026
+#
+# Building takes 10-20 minutes and about 8 GB of RAM, and it expects the whole
+# repository as its context.
+#
+# TO SELF-HOST, USE compose.self-host.yml INSTEAD. That one pulls a finished
+# image, builds nothing, and is what install.sh and
+# nisd2.eu/docs/self-hosting/installation set up. On a NAS or any small box it
+# is the only one that will work.
+#
+# Migrations run at container start, and the framework data loads itself:
+# runtime-migrate.mjs fills an empty requirement catalogue from
+# db/framework-seed.sql. There is no manual seed step.
+#
+# For the minimal workspace-package demo instead, see
+# apps/reference/docker-compose.yml.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-openisms}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-openisms}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Bound to loopback only: the app reaches Postgres over the compose
+    # network, and this mapping exists so you can run the one-off seed and
+    # take backups from the host. It is not reachable from outside the box.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-openisms}", "-d", "${POSTGRES_DB:-openisms}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      # Required. The app refuses to start without these.
+      DATABASE_URL: postgres://${POSTGRES_USER:-openisms}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-openisms}
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env, generate with openssl rand -base64 32}
+      # Required for correct cookies and links. Both must be the URL your
+      # users actually type, including the scheme.
+      AUTH_URL: ${AUTH_URL:-http://localhost:3026}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3026}
+      # Required before anyone can register: the sign-up flow verifies the
+      # address with a one-time code. Pick one transport. SMTP_HOST wins when
+      # both are set; with neither, the code is printed to this container's
+      # log instead of sent.
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_SECURE: ${SMTP_SECURE:-}
+      SMTP_ALLOW_SELF_SIGNED: ${SMTP_ALLOW_SELF_SIGNED:-}
+      # From address for either transport. RESEND_FROM_EMAIL still works and
+      # is what existing deployments set.
+      MAIL_FROM_EMAIL: ${MAIL_FROM_EMAIL:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-}
+      MAIL_FROM_NAME_PERSONAL: ${MAIL_FROM_NAME_PERSONAL:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      # Third way in, for an instance with no mail transport at all: the first
+      # account is created at startup instead of being verified by email.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      # Required in production: GDPR erasure throws without it.
+      ERASURE_EMAIL_HASH_SALT: ${ERASURE_EMAIL_HASH_SALT:-}
+      # Optional. Each one degrades a single feature, see
+      # content/docs/self-hosting/configuration.md.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      AWS_S3_REGION: ${AWS_S3_REGION:-eu-north-1}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-}
+      # Public address, the one presigned URLs are signed for and the browser
+      # opens. Internal address, the one this container uses to reach the
+      # store. Same value on AWS; different under `--profile minio`.
+      AWS_S3_ENDPOINT: ${AWS_S3_ENDPOINT:-}
+      AWS_S3_INTERNAL_ENDPOINT: ${AWS_S3_INTERNAL_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      RAPIDAPI_KEY: ${RAPIDAPI_KEY:-}
+      CRON_SECRET: ${CRON_SECRET:-}
+      SUPPORT_EMAIL: ${SUPPORT_EMAIL:-}
+      PLATFORM_ADMIN_EMAILS: ${PLATFORM_ADMIN_EMAILS:-}
+      CSP_UPGRADE_INSECURE: ${CSP_UPGRADE_INSECURE:-}
+    ports:
+      - "${APP_PORT:-3026}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Object store for evidence uploads, so you do not need an AWS account.
+  # Opt in with `docker compose --profile minio up`, and uncomment the
+  # storage block in .env. Leave the profile off to use real S3 instead.
+  minio:
+    # Chainguard's build of MinIO: MinIO's own images can no longer be pulled
+    # without an account. See the note in compose.self-host.yml.
+    image: cgr.dev/chainguard/minio:latest
+    profiles: [minio]
+    restart: unless-stopped
+    # Existing minio-data volumes were written as root by MinIO's own image.
+    user: "0:0"
+    # The "you forgot a variable" check lives in this command rather than in a
+    # `${VAR:?}` on the environment below, because Compose interpolates EVERY
+    # service in the file regardless of which profiles are active. With the
+    # guards on the environment, `docker compose up` failed with
+    # "required variable AWS_ACCESS_KEY_ID is missing" for people who never
+    # asked for MinIO and had those lines commented out, exactly as
+    # .env.example ships them. The message is worth keeping; failing the whole
+    # file to deliver it is not.
+    # entrypoint, not command: the image's entrypoint IS `minio`, so a
+    # command array is passed to it as sub-command arguments.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ -z "$$MINIO_ROOT_USER" ]; then
+          echo "minio: set AWS_ACCESS_KEY_ID in .env" >&2
+          exit 1
+        fi
+        if [ -z "$$MINIO_ROOT_PASSWORD" ]; then
+          echo "minio: set AWS_SECRET_ACCESS_KEY in .env (at least 8 characters)" >&2
+          exit 1
+        fi
+        if [ "$$MINIO_KMS_SECRET_KEY" = "openisms-key:" ]; then
+          echo "minio: set MINIO_KMS_KEY in .env (openssl rand -base64 32)" >&2
+          exit 1
+        fi
+        exec minio server /data --console-address ":9001"
+    environment:
+      # Not defaulted to "openisms": minio-init below builds its credentials
+      # from AWS_ACCESS_KEY_ID, and the app signs its S3 requests with the same
+      # value. Defaulting only here would boot MinIO under a username neither
+      # of them uses, and every upload would 403 with nothing naming the cause.
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-}
+      # Evidence uploads always send x-amz-server-side-encryption AES256.
+      # MinIO answers SSE-S3 out of a KMS, so without a key every upload is
+      # rejected. 32 bytes, base64: openssl rand -base64 32
+      MINIO_KMS_SECRET_KEY: "openisms-key:${MINIO_KMS_KEY:-}"
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+    healthcheck:
+      # No curl in the image: see the healthcheck note in compose.self-host.yml.
+      test: ["CMD", "/bin/sh", "-c", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /minio/health/live HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && read -r status <&3 && [[ $$status == *' 200 '* ]]"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # A mail server for evaluating the stack, so registration works before you
+  # own a domain or a relay. Opt in with `docker compose --profile mail up`
+  # and set SMTP_HOST=mailpit, SMTP_PORT=1025 in .env. Every message the app
+  # sends is caught here and readable at http://localhost:8025; nothing
+  # leaves the machine. It keeps mail in memory, so a restart empties it.
+  #
+  # This is for evaluation. A real instance points SMTP_HOST at a relay that
+  # can deliver to the internet, or sets RESEND_API_KEY instead.
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: [mail]
+    restart: unless-stopped
+    ports:
+      # Web inbox on the host. SMTP stays on the compose network, where the
+      # app reaches it as mailpit:1025, so it is not an open relay on your box.
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # One-shot: create the evidence bucket, then exit. Idempotent, so it is
+  # harmless on every subsequent `up`.
+  minio-init:
+    # The server image carries mc too, so one image serves both services.
+    image: cgr.dev/chainguard/minio:latest
+    profiles: [minio]
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_store: http://${AWS_ACCESS_KEY_ID}:${AWS_SECRET_ACCESS_KEY}@minio:9000
+    entrypoint: ["/bin/sh", "-c", "mc mb --ignore-existing store/${AWS_S3_BUCKET:-evidence} && echo 'bucket ${AWS_S3_BUCKET:-evidence} ready'"]
+
+volumes:
+  postgres-data:
+  minio-data:

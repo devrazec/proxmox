@@ -6,16 +6,24 @@ https://www.debian.org/CD/live/
 
 # Enalble SSH
 
-sudo apt update
-sudo apt install openssh-server -y
-sudo systemctl enable --now ssh
-sudo systemctl status ssh
-sudo ufw allow OpenSSH
+su -
+apt update
+apt install openssh-server -y
+systemctl enable --now ssh
+systemctl status ssh
+ufw allow OpenSSH
 
 # Enable Remote Access
 
-sudo apt install xrdp -y
-sudo systemctl enable --now xrdp
-sudo systemctl status xrdp
-sudo ufw allow 3389/tcp
-sudo reboot
+su -
+apt install xrdp -y
+systemctl enable --now xrdp
+systemctl status xrdp
+ufw allow 3389/tcp
+reboot
+
+# Install qemu agent
+
+sudo apt update
+sudo apt install qemu-guest-agent
+sudo systemctl enable --now qemu-guest-agent
