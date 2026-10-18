@@ -21,3 +21,37 @@ or
 Make the fix permanent
 pve2 → System → DNS → Edit
 Set the DNS server to 1.1.1.1 and save. You can also use 8.8.8.8 as an alternative.
+
+# Delete a Cluster
+
+systemctl stop pve-ha-lrm
+systemctl stop pve-ha-crm
+systemctl stop corosync
+systemctl stop pve-cluster
+
+pmxcfs -l
+
+rm /etc/pve/corosync.conf
+rm -rf /etc/corosync/*
+
+killall pmxcfs
+systemctl start pve-cluster
+
+reboot
+
+pvecm status
+
+# Change Server IP
+
+cat /etc/hosts
+ip -br addr
+
+nano /etc/hosts
+192.168.2.50 pve1.local pve1
+
+getent hosts pve1
+hostname --ip-address
+
+# After cluster creation on the console
+
+pvecm expected 1
