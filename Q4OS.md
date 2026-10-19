@@ -92,3 +92,7 @@ ls ~/Rede/T
 ls ~/Rede/X
 
 journalctl -b --no-pager | grep -Ei 'pam_mount|cifs|kerberos'
+
+- Authentication
+
+cmviladoporto\cezar
