@@ -40,6 +40,7 @@ mkdir -p /sys/fs/cgroup/init
 for p in $(cat /sys/fs/cgroup/cgroup.procs); do echo $p > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null; done
 echo "+cpuset +cpu +io +memory +hugetlb +pids" > /sys/fs/cgroup/cgroup.subtree_control
 cat /sys/fs/cgroup/cgroup.subtree_control
+
 rc-service docker restart
 
 docker compose up -d
