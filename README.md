@@ -71,6 +71,9 @@ docker compose up -d
 ip addr
 http://192.168.2.6:5001/
 
+User: admin
+Password: 
+
 # Install qemu agent
 
 sudo apt update
