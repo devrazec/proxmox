@@ -1,3 +1,8 @@
+# Install Q4OS 6.10
+
+User: adminq
+Password adminq
+
 # Install on Q4OS Hyper-V Drivers
 
 sudo apt update
@@ -22,6 +27,38 @@ sudo systemctl enable --now xrdp
 sudo systemctl status xrdp
 sudo ufw allow 3389/tcp
 sudo reboot
+
+# Enable VNC on Q4OS
+
+sudo apt install x11vnc -y
+x11vnc -storepasswd
+Password: adminq
+
+sudo mkdir -p /etc/x11vnc
+sudo x11vnc -storepasswd /etc/x11vnc/passwd
+sudo chmod 600 /etc/x11vnc/passwd
+
+sudo nano /etc/systemd/system/x11vnc.service
+
+[Unit]
+Description=VNC Remote Access - Login Screen
+After=display-manager.service
+Wants=display-manager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/x11vnc -display :0 -auth guess -forever -loop 10 -shared -rfbauth /etc/x11vnc/passwd -rfbport 5900 -noxdamage
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
+
+sudo systemctl daemon-reload
+sudo systemctl enable x11vnc
+sudo systemctl restart x11vnc
+
+
 
 # Add Linux Q4OS on a Windows Local Domain
 
