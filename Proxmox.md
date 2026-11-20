@@ -3,6 +3,9 @@
 Proxmox VE 8.4 ISO Installer
 https://www.proxmox.com/en/downloads/proxmox-virtual-environment/iso/proxmox-ve-8-4-iso-installer
 
+User: root
+Password: admin123
+
 # Update
 
 ls -l /etc/resolv.conf

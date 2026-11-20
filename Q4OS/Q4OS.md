@@ -1,7 +1,58 @@
 # Install Q4OS 6.10
 
+Hardware 
+2GB RAM
+32GB HD
+1 Processor
+
+Select the option to install without intervention
+
 User: adminq
-Password adminq
+Password adminq12
+
+Settings
+
+- Select profile light / minimal desktop
+- Disable screen save
+- Enable root login and autologin on Login Manager to the user adminq
+- Install Chrome
+
+# Execute the script from the cd drive
+
+lsblk
+sudo mkdir -p /mnt/iso
+sudo mount -o ro /dev/sr0 /mnt/iso
+cd /mnt/iso
+sudo ./script.sh
+sudo umount /mnt/iso
+
+# Execute the script from a pendrive
+
+# Remove access
+
+SSH: adminq@192.168.0.104
+Port: 22
+
+RDP User: adminq
+Password: adminq12
+Port: 3389
+
+VNC User: adminq
+Password: adminq12
+Port: 5900
+
+SMB Shared Folder: \\q4osclient\install
+User: adminq
+Password: adminq12
+
+autologin
+
+# Check Computer IP
+
+ip addr show
+192.168.0.104
+
+hostname -I
 
 # Install on Q4OS Hyper-V Drivers
 
@@ -32,7 +83,7 @@ sudo reboot
 
 sudo apt install x11vnc -y
 x11vnc -storepasswd
-Password: adminq
+Password: adminq12
 
 sudo mkdir -p /etc/x11vnc
 sudo x11vnc -storepasswd /etc/x11vnc/passwd
@@ -117,3 +168,12 @@ journalctl -b --no-pager | grep -Ei 'pam_mount|cifs|kerberos'
 - Authentication
 
 cmviladoporto\cezar
+
+# Transform Script to Executable on Mac
+
+chmod +x script.sh
+
+# Create a Iso from a folder on Mac
+
+hdiutil makehybrid -o /Users/user/projects/proxmox/Q4OS/q4osinstall.iso /Users/user/projects/proxmox/Q4OS -iso -joliet
+
