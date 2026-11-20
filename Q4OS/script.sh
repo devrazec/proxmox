@@ -69,7 +69,7 @@ Wants=display-manager.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/x11vnc -display :0 -auth guess -forever -loop 10 -shared -rfbauth /etc/x11vnc/passwd -rfbport ${VNC_PORT} -noxdamage
+ExecStart=/usr/bin/x11vnc -display :0 -auth guess -forever -shared -rfbauth /etc/x11vnc/passwd -rfbport ${VNC_PORT} -noxdamage
 Restart=always
 RestartSec=5
 
