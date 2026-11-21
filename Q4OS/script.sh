@@ -114,13 +114,28 @@ fi
 
 echo "==> Configuring nginx HTTPS reverse proxy"
 mkdir -p /etc/nginx/ssl
-if [[ ! -f /etc/nginx/ssl/q4os.crt ]]; then
+CERT=/etc/nginx/ssl/q4os.crt
+CERT_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+# (Re)generate if missing or if it predates the localhost/IP names
+if [[ ! -f $CERT ]] || ! openssl x509 -noout -ext subjectAltName -in "$CERT" 2>/dev/null | grep -q 'localhost'; then
+    SAN="DNS:${NEW_HOSTNAME},DNS:${NEW_HOSTNAME}.local,DNS:localhost,IP:127.0.0.1"
+    [[ -n $CERT_IP ]] && SAN+=",IP:${CERT_IP}"
     openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
-        -keyout /etc/nginx/ssl/q4os.key -out /etc/nginx/ssl/q4os.crt \
+        -keyout /etc/nginx/ssl/q4os.key -out "$CERT" \
         -subj "/CN=${NEW_HOSTNAME}" \
-        -addext "subjectAltName=DNS:${NEW_HOSTNAME},DNS:${NEW_HOSTNAME}.local"
+        -addext "subjectAltName=${SAN}"
     chmod 600 /etc/nginx/ssl/q4os.key
 fi
+
+# Trust the certificate on this machine (system store + the user's browser DB)
+cp "$CERT" /usr/local/share/ca-certificates/q4os.crt
+update-ca-certificates
+apt-get install -y libnss3-tools
+NSS_DB="$(getent passwd "$APP_USER" | cut -d: -f6)/.pki/nssdb"
+sudo -u "$APP_USER" mkdir -p "$NSS_DB"
+[[ -f $NSS_DB/cert9.db ]] || sudo -u "$APP_USER" certutil -N -d "sql:${NSS_DB}" --empty-password
+sudo -u "$APP_USER" certutil -D -d "sql:${NSS_DB}" -n q4os 2>/dev/null || true
+sudo -u "$APP_USER" certutil -A -d "sql:${NSS_DB}" -n q4os -t "C,," -i "$CERT"
 
 cat > /etc/nginx/sites-available/nextjs <<EOF
 server {
@@ -152,6 +167,33 @@ ln -sf /etc/nginx/sites-available/nextjs /etc/nginx/sites-enabled/nextjs
 nginx -t
 systemctl enable nginx
 systemctl restart nginx
+
+# ---------------------------------------------------------------- Browser autostart
+echo "==> Enabling fullscreen browser autostart (Chromium is installed separately)"
+apt-get install -y curl
+
+# Launcher: wait until the site answers, then open it fullscreen.
+# (use --kiosk instead of --start-fullscreen for a locked-down kiosk)
+cat > /usr/local/bin/q4os-browser <<'EOF'
+#!/usr/bin/env bash
+until curl -sk -o /dev/null https://localhost; do sleep 2; done
+BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "Chromium is not installed" >&2; exit 1; }
+exec "$BROWSER" --start-fullscreen --no-first-run --no-default-browser-check \
+    --password-store=basic --disable-features=Translate,SigninIntercept \
+    https://localhost
+EOF
+chmod 755 /usr/local/bin/q4os-browser
+
+APP_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
+sudo -u "$APP_USER" mkdir -p "${APP_HOME}/.config/autostart"
+cat > "${APP_HOME}/.config/autostart/q4os-browser.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Q4OS Browser
+Exec=/usr/local/bin/q4os-browser
+X-GNOME-Autostart-enabled=true
+EOF
+chown "${APP_USER}:${APP_USER}" "${APP_HOME}/.config/autostart/q4os-browser.desktop"
 
 # ---------------------------------------------------------------- SSH
 echo "==> Enabling SSH"
