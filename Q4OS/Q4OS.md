@@ -15,7 +15,7 @@ Settings
 - Select profile light / minimal desktop
 - Disable screen save
 - Enable root login and autologin on Login Manager to the user adminq
-- Install Chrome
+- Install Chromium
 
 # Execute the script from the cd drive
 
