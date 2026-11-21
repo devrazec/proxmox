@@ -173,15 +173,20 @@ echo "==> Enabling fullscreen browser autostart (Chromium is installed separatel
 apt-get install -y curl
 
 # Launcher: wait until the site answers, then open it fullscreen.
-# (use --kiosk instead of --start-fullscreen for a locked-down kiosk)
+# (kiosk mode: fullscreen, no tabs or address bar; exit with Alt+F4)
 cat > /usr/local/bin/q4os-browser <<'EOF'
 #!/usr/bin/env bash
 exec >>"$HOME/q4os-browser.log" 2>&1
 echo "--- $(date) starting"
+# xrdp (RDP) logins are separate desktop sessions: don't open the browser there
+if [[ -n "${XRDP_SESSION:-}" ]]; then
+    echo "RDP session detected; not starting the browser"
+    exit 0
+fi
 export DISPLAY="${DISPLAY:-:0}"
 until curl -sk -o /dev/null https://localhost; do sleep 2; done
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "Chromium is not installed" >&2; exit 1; }
-exec "$BROWSER" --start-fullscreen --no-first-run --no-default-browser-check \
+exec "$BROWSER" --kiosk --no-first-run --no-default-browser-check \
     --password-store=basic --disable-features=Translate,SigninIntercept \
     https://localhost
 EOF
