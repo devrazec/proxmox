@@ -73,7 +73,9 @@ echo "==> Installing nginx and openssl"
 apt-get install -y nginx openssl
 
 echo "==> Deploying Next.js project from ${APP_REPO}"
-mkdir -p "$(dirname "$APP_DIR")"
+# /opt is root-owned, so create the app folder as root and hand it to the user
+mkdir -p "$APP_DIR"
+chown "${APP_USER}:${APP_USER}" "$APP_DIR"
 if [[ -d "$APP_DIR/.git" ]]; then
     sudo -u "$APP_USER" git -C "$APP_DIR" pull --ff-only
 else
