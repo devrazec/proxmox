@@ -2,7 +2,7 @@
 #
 # Post-install script for Q4OS 6.10 (Debian 13 based)
 # Sets the computer name to q4osclient and installs/enables: OpenSSH server,
-# xrdp (RDP), x11vnc (VNC) and Samba (share "Users"), plus Node.js, git and
+# x11vnc (VNC) and Samba (share "Users"), plus Node.js, git and
 # Visual Studio Code.
 #
 # Usage:
@@ -12,7 +12,6 @@
 set -euo pipefail
 
 VNC_PORT=5900
-RDP_PORT=3389
 
 if [[ $EUID -ne 0 ]]; then
     echo "Please run as root: sudo bash $0" >&2
@@ -50,8 +49,8 @@ fi
 echo "==> Updating package lists"
 apt-get update
 
-echo "==> Installing openssh-server, xrdp, x11vnc and samba"
-apt-get install -y openssh-server xrdp xorgxrdp x11vnc samba
+echo "==> Installing openssh-server, x11vnc and samba"
+apt-get install -y openssh-server x11vnc samba
 
 # ---------------------------------------------------------------- Dev tools
 echo "==> Installing Node.js, npm and git"
@@ -178,11 +177,6 @@ cat > /usr/local/bin/q4os-browser <<'EOF'
 #!/usr/bin/env bash
 exec >>"$HOME/q4os-browser.log" 2>&1
 echo "--- $(date) starting"
-# xrdp (RDP) logins are separate desktop sessions: don't open the browser there
-if [[ -n "${XRDP_SESSION:-}" ]]; then
-    echo "RDP session detected; not starting the browser"
-    exit 0
-fi
 export DISPLAY="${DISPLAY:-:0}"
 until curl -sk -o /dev/null https://localhost; do sleep 2; done
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "Chromium is not installed" >&2; exit 1; }
@@ -204,18 +198,10 @@ Exec=/usr/local/bin/q4os-browser
 Terminal=false
 EOF
 chown "${APP_USER}:${APP_USER}" "${TDE_AUTOSTART}/q4os-browser.desktop"
-# Remove the earlier (non-TDE) autostart entry to avoid a double launch
-rm -f "${APP_HOME}/.config/autostart/q4os-browser.desktop"
 
 # ---------------------------------------------------------------- SSH
 echo "==> Enabling SSH"
 systemctl enable --now ssh
-
-# ---------------------------------------------------------------- XRDP
-echo "==> Enabling xrdp"
-# xrdp needs access to the TLS key
-adduser --quiet xrdp ssl-cert || true
-systemctl enable --now xrdp
 
 # ---------------------------------------------------------------- VNC
 echo "==> Configuring x11vnc"
@@ -295,7 +281,6 @@ systemctl restart smbd nmbd
 if command -v ufw >/dev/null 2>&1; then
     echo "==> Opening firewall ports (ufw)"
     ufw allow OpenSSH
-    ufw allow ${RDP_PORT}/tcp
     ufw allow ${VNC_PORT}/tcp
     ufw allow 80/tcp
     ufw allow 443/tcp
@@ -306,7 +291,7 @@ fi
 # ---------------------------------------------------------------- Summary
 echo
 echo "==> Service status"
-for svc in ssh xrdp x11vnc smbd nginx nextjs; do
+for svc in ssh x11vnc smbd nginx nextjs; do
     printf '%-8s enabled=%-9s active=%s\n' "$svc" \
         "$(systemctl is-enabled "$svc" 2>/dev/null || true)" \
         "$(systemctl is-active "$svc" 2>/dev/null || true)"
@@ -316,7 +301,6 @@ IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 echo
 echo "Done. Connect with:"
 echo "  SSH: ssh <user>@${IP:-<ip>}"
-echo "  RDP: ${IP:-<ip>}:${RDP_PORT}"
 echo "  VNC: ${IP:-<ip>}:${VNC_PORT}"
 echo "  WEB: https://${IP:-<ip>}  (self-signed certificate)"
 echo "  SMB:\\\\${NEW_HOSTNAME}\\${SHARE_NAME}  (user: ${SMB_USER})"
