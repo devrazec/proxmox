@@ -7,7 +7,7 @@ Hardware
 
 Select the option to install without intervention
 
-User: adminq
+User: adminq or root
 Password adminq12
 
 Settings
@@ -30,7 +30,8 @@ sudo umount /mnt/iso
 
 # Remove access
 
-SSH: adminq@192.168.0.104
+SSH: root@192.168.0.104
+Password: adminq12
 Port: 22
 
 RDP User: adminq
@@ -41,11 +42,9 @@ VNC User: adminq
 Password: adminq12
 Port: 5900
 
-SMB Shared Folder: \\q4osclient\install
+SMB Shared Folder: \\q4osclient\Users
 User: adminq
 Password: adminq12
-
-autologin
 
 # Check Computer IP
 
