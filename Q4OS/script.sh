@@ -257,6 +257,15 @@ if ! grep -q "^\[${SHARE_NAME}\]" /etc/samba/smb.conf; then
 EOF
 fi
 
+# Disable the default [homes] share (shows up as a folder named after the user)
+cp -n /etc/samba/smb.conf /etc/samba/smb.conf.bak
+awk '
+    /^\[/ { in_homes = ($0 == "[homes]") }
+    in_homes && !/^[;#]/ && NF { print ";" $0; next }
+    { print }
+' /etc/samba/smb.conf > /etc/samba/smb.conf.new
+mv /etc/samba/smb.conf.new /etc/samba/smb.conf
+
 # Second share: the Next.js project folder
 if ! grep -q "^\[${APP_SHARE_NAME}\]" /etc/samba/smb.conf; then
     cat >> /etc/samba/smb.conf <<EOF
