@@ -176,6 +176,9 @@ apt-get install -y curl
 # (use --kiosk instead of --start-fullscreen for a locked-down kiosk)
 cat > /usr/local/bin/q4os-browser <<'EOF'
 #!/usr/bin/env bash
+exec >>"$HOME/q4os-browser.log" 2>&1
+echo "--- $(date) starting"
+export DISPLAY="${DISPLAY:-:0}"
 until curl -sk -o /dev/null https://localhost; do sleep 2; done
 BROWSER=$(command -v chromium || command -v chromium-browser) || { echo "Chromium is not installed" >&2; exit 1; }
 exec "$BROWSER" --start-fullscreen --no-first-run --no-default-browser-check \
@@ -185,15 +188,19 @@ EOF
 chmod 755 /usr/local/bin/q4os-browser
 
 APP_HOME="$(getent passwd "$APP_USER" | cut -d: -f6)"
-sudo -u "$APP_USER" mkdir -p "${APP_HOME}/.config/autostart"
-cat > "${APP_HOME}/.config/autostart/q4os-browser.desktop" <<EOF
+# TDE (Trinity) reads ~/.trinity/Autostart; this is what its Autostart Manager edits
+TDE_AUTOSTART="${APP_HOME}/.trinity/Autostart"
+sudo -u "$APP_USER" mkdir -p "$TDE_AUTOSTART"
+cat > "${TDE_AUTOSTART}/q4os-browser.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Q4OS Browser
 Exec=/usr/local/bin/q4os-browser
-X-GNOME-Autostart-enabled=true
+Terminal=false
 EOF
-chown "${APP_USER}:${APP_USER}" "${APP_HOME}/.config/autostart/q4os-browser.desktop"
+chown "${APP_USER}:${APP_USER}" "${TDE_AUTOSTART}/q4os-browser.desktop"
+# Remove the earlier (non-TDE) autostart entry to avoid a double launch
+rm -f "${APP_HOME}/.config/autostart/q4os-browser.desktop"
 
 # ---------------------------------------------------------------- SSH
 echo "==> Enabling SSH"
